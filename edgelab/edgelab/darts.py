@@ -6,6 +6,7 @@ alle typischen Wetten: Sieger, genaues Ergebnis, Handicap Legs, Gesamtzahl Legs.
 """
 from __future__ import annotations
 
+import datetime
 import logging
 import math
 import re
@@ -31,7 +32,14 @@ FORMATS = {
     "world matchplay": 11,
     "premier league": 6,
     "uk open": 6,
+    "players championship": 6,          # Floor-Turniere: Best of 11 Legs
 }
+
+# Satz-Modus der WM (Sätze zu je "first to 3 Legs"): nötige Sätze je nach Runde, die Runde ergibt sich aus dem Datum.
+# R1/R2 bis kurz vor Weihnachten Best of 5, R3/R4 Best of 7, Viertelfinale Best of 9, Halbfinale 11, Finale 13.
+WORLD_CHAMPIONSHIP = "world championship"
+WC_SETS_BY_DAY = [(27, 4), (30, 5), (33, 6), (34, 7)]  # Tag ab 1. Dezember: 27. Dez, 30. Dez, 2. Jan, 3. Jan
+LEGS_PER_SET = 3
 
 STAT_NAMES = {
     "Averages": "avg", "180's": "s180", "Checkout %": "checkout", "% Legs Won": "legs_won",
@@ -78,7 +86,7 @@ def fetch(names: list[str], force: bool = False, progress=lambda s: None) -> int
     now = db.now()
     with db.conn() as con:
         fresh = {r["name"] for r in con.execute("SELECT name FROM darts_stats WHERE updated > ?", (now - CACHE_HOURS * 3600,))}
-    rows = []
+    rows, failed = [], 0
     for name in dict.fromkeys(n for n in names if n):
         if name in fresh and not force:
             continue
@@ -88,12 +96,19 @@ def fetch(names: list[str], force: bool = False, progress=lambda s: None) -> int
             r = requests.get(PROFILE_URL.format(slug=s), timeout=20, headers={"User-Agent": "edgelab/0.1 (personal)"})
             if r.ok:
                 stats = parse_profile(r.text)
+            elif r.status_code != 404:
+                failed += 1
+                log.warning("Darts Orakel %s: HTTP %s", name, r.status_code)
         except requests.RequestException as e:
-            log.info("Darts Orakel %s: %s", name, e)
+            failed += 1
+            log.warning("Darts Orakel %s: %s", name, e)
         rows.append({"name": name, "slug": s, "found": 1 if stats else 0, "updated": now, **{k: (stats or {}).get(k) for k in STAT_NAMES.values()}})
     with db.conn() as con:
         db.upsert(con, "darts_stats", rows, "name")
-    progress(f"Darts: Statistiken für {sum(r['found'] for r in rows)} von {len(rows)} Spielern geladen")
+    msg = f"Darts: Statistiken für {sum(r['found'] for r in rows)} von {len(rows)} Spielern geladen"
+    if failed:
+        msg += f" ({failed} Abrufe bei Darts Orakel gescheitert, dann rechnet das Elo-Modell)"
+    progress(msg if rows else "Darts: keine anstehenden Spiele")
     return len(rows)
 
 
@@ -128,6 +143,33 @@ def first_to(title: str | None) -> int | None:
         if name in t:
             return k
     return None
+
+
+def sets_to(title: str | None, start_ts: int | None = None) -> int | None:
+    """Nötige Satzgewinne bei der WM (None, wenn kein Satz-Turnier)."""
+    t = (title or "").lower()
+    if WORLD_CHAMPIONSHIP not in t or any(x in t for x in ("youth", "women", "junior", "seniors", "bdo", "wdf")):
+        return None
+    if not start_ts:
+        return 3
+    d = datetime.datetime.fromtimestamp(int(start_ts), datetime.timezone.utc)
+    day = d.day if d.month == 12 else 31 + d.day if d.month == 1 else 0   # fortlaufend ab 1. Dezember
+    k = 3
+    for first_day, sets in WC_SETS_BY_DAY:
+        if day >= first_day:
+            k = sets
+    return k
+
+
+def set_prob(avg_a: float, avg_b: float) -> float:
+    """Wahrscheinlichkeit, dass A einen Satz gewinnt (first to 3 Legs)."""
+    p = leg_prob(avg_a, avg_b)
+    return sum(v for (a, b), v in scores(p, LEGS_PER_SET).items() if a > b)
+
+
+def match_prob_sets(avg_a: float, avg_b: float, s: int) -> float:
+    ps = set_prob(avg_a, avg_b)
+    return sum(v for (a, b), v in scores(ps, s).items() if a > b)
 
 
 def match_prob(avg_a: float, avg_b: float, k: int | None) -> float:
@@ -167,4 +209,21 @@ def markets(a: str, b: str, avg_a: float, avg_b: float, k: int | None) -> list[d
         po = sum(v for (x, y), v in dist.items() if x + y > line)
         tot += [item(f"Über {_fl(line)} Legs", po), item(f"Unter {_fl(line)} Legs", 1 - po)]
     groups.append({"group": f"Gesamtzahl Legs (erwartet {_fl(round(exp_total, 1))})", "items": tot})
+    return groups
+
+
+def markets_sets(a: str, b: str, avg_a: float, avg_b: float, s: int) -> list[dict]:
+    """Wetten für Satz-Spiele (WM): Sieger, Satzergebnis, Gesamtzahl Sätze."""
+    from .games import item
+
+    dist = scores(set_prob(avg_a, avg_b), s)
+    win_a = sum(v for (x, y), v in dist.items() if x > y)
+    groups = [{"group": "Sieger", "items": [item(a, win_a), item(b, 1 - win_a)]}]
+    order = sorted(dist.items(), key=lambda kv: (-kv[0][0] + kv[0][1]))  # von klarem A-Sieg bis klarem B-Sieg
+    groups.append({"group": "Satzergebnis", "items": [item(f"{x}:{y}", v) for (x, y), v in order]})
+    exp_total = sum((x + y) * v for (x, y), v in dist.items())
+    line = math.floor(exp_total) + 0.5
+    po = sum(v for (x, y), v in dist.items() if x + y > line)
+    groups.append({"group": f"Gesamtzahl Sätze (erwartet {_fl(round(exp_total, 1))})",
+                   "items": [item(f"Über {_fl(line)} Sätze", po), item(f"Unter {_fl(line)} Sätze", 1 - po)]})
     return groups

@@ -210,7 +210,9 @@
     basketball: [["Sieger"], ["Handicap (faire Linie)", null, "Handicap"], [/^Gesamtpunkte/, "mid", "Gesamtpunkte"]],
     "american-football": [["Sieger"], ["Handicap (faire Linie)", null, "Handicap"], [/^Gesamtpunkte/, "mid", "Gesamtpunkte"]],
     hockey: [["Sieger inkl. Verlängerung", null, "Sieger inkl. Verlängerung"], ["3-Weg nach 60 Minuten"], ["Über/Unter Tore", "5,5", "Über/Unter 5,5 Tore"], ["Puckline"], ["Sieger"]],
-    tennis: [["Sieger"], ["Über/Unter Sätzen", null, "Über/Unter Sätze"], ["Ergebnis in Sätzen"]]
+    tennis: [["Sieger"], ["Über/Unter Sätzen", null, "Über/Unter Sätze"], ["Ergebnis in Sätzen"]],
+    darts: [["Sieger"], ["Satzergebnis"], [/^Gesamtzahl Sätze/, null, "Gesamtzahl Sätze"], [/^Gesamtzahl Legs/, "mid", "Gesamtzahl Legs"],
+      ["Handicap Legs", "1,5", "Handicap 1,5 Legs"], ["Genaues Ergebnis (Top 6)", null, "Genaues Ergebnis"]]
   };
   function keyMarkets(g) {
     var G = g.groups || [], out = [];
@@ -227,7 +229,7 @@
         items = items.filter(function (i) { return i.label.slice(-s[1].length) === s[1]; });
       }
       var title = s[2] || grp.group;
-      if (s[1] === "mid" && items[0]) title = "Gesamtpunkte " + items[0].label.replace(/^(Über|Unter) /, "");
+      if (s[1] === "mid" && items[0]) title = title + " " + items[0].label.replace(/^(Über|Unter) /, "").replace(/ (Legs|Sätze)$/, "");
       out.push({ title: title, items: items });
     });
     return out;

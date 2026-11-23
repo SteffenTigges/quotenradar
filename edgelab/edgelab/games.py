@@ -239,11 +239,18 @@ def build(hours: int = 48, with_props: bool = True, progress=lambda s: None) -> 
                 pass  # ohne Tormodell kein Unentschieden -> keine Modellprognose, nur Markt
             elif fam == "darts" and darts.stats(a) and darts.stats(b):
                 sa, sb = darts.stats(a), darts.stats(b)
-                k = darts.first_to(g.get("title") or g["league"])
-                p = darts.match_prob(sa["avg"], sb["avg"], k)
+                sets = darts.sets_to(g.get("title") or g["league"], g.get("start"))
+                if sets:
+                    p = darts.match_prob_sets(sa["avg"], sb["avg"], sets)
+                    g["groups"] = darts.markets_sets(a, b, sa["avg"], sb["avg"], sets)
+                    fmt = f"Best of {2 * sets - 1} Sätze"
+                else:
+                    k = darts.first_to(g.get("title") or g["league"])
+                    p = darts.match_prob(sa["avg"], sb["avg"], k)
+                    g["groups"] = darts.markets(a, b, sa["avg"], sb["avg"], k)
+                    fmt = f"Best of {2 * k - 1} Legs" if k else None
                 g["model"], g["method"] = {"a": p, "b": 1 - p}, "Average-Modell"
-                g["groups"] = darts.markets(a, b, sa["avg"], sb["avg"], k)
-                g["darts"] = {"a": sa, "b": sb, "format": f"Best of {2 * k - 1} Legs" if k else None}
+                g["darts"] = {"a": sa, "b": sb, "format": fmt}
             else:
                 p2, method = pm_.win_prob(a, b, home, g["code"], adj)
                 if p2 is not None:
