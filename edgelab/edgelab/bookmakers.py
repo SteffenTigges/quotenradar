@@ -1,12 +1,15 @@
 """Quotenvergleich deutscher Anbieter: Tipico, Betano, Winamax.
 
 Quelle: The Odds API (https://the-odds-api.com) – kostenloser Schlüssel, 500 Abfragen pro Monat.
-Mit dem Parameter `bookmakers` zählen bis zu 10 Anbieter wie eine Region; eine Abfrage pro Sportart und
-Markt kostet daher 1 Abfrage. Standard: Sieger + Über/Unter für die großen Ligen, einmal am Tag.
+Mit dem Parameter `bookmakers` zählen bis zu 10 Anbieter wie eine Region; jede Sportart kostet daher
+1 Abfrage pro Markt. Standard: nur der Sieger-Markt für 11 große Ligen, einmal am Tag
+= 11 Abfragen pro Tag, rund 330 im Monat. Über/Unter dazu (ODDS_API_MARKETS=h2h,totals) verdoppelt das
+und passt nicht mehr ins kostenlose Kontingent.
 
 Einrichtung: in `.env` eintragen
     ODDS_API_KEY=dein_schlüssel
     ODDS_API_SPORTS=soccer_germany_bundesliga,soccer_epl,basketball_nba   (optional)
+    ODDS_API_MARKETS=h2h                                                   (optional)
 """
 from __future__ import annotations
 
@@ -65,12 +68,17 @@ def sports() -> list[str]:
     return [s.strip() for s in env.split(",") if s.strip()] if env else DEFAULT_SPORTS
 
 
-def refresh(force: bool = False, markets: str = "h2h,totals", progress=lambda s: None) -> int:
+def default_markets() -> str:
+    return os.environ.get("ODDS_API_MARKETS", "").strip() or "h2h"
+
+
+def refresh(force: bool = False, markets: str | None = None, progress=lambda s: None) -> int:
     """Lädt die Quoten von Tipico, Betano und Winamax. Ohne Schlüssel passiert nichts."""
     if not enabled():
         progress("Quotenvergleich: kein ODDS_API_KEY eingetragen (siehe README)")
         return 0
     init()
+    markets = markets or default_markets()
     now = db.now()
     last = db.kv_get("book_odds_last", 0)
     if not force and now - last < REFRESH_HOURS * 3600:

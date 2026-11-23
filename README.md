@@ -17,7 +17,13 @@ GitHub Actions startet jede Stunde `python -m edgelab ci`. Der Lauf lädt Spiele
 1. **Repository öffentlich halten.** GitHub Pages und die Actions-Minuten sind für öffentliche Repositories kostenlos.
 2. **GitHub Pages einschalten.** Settings → Pages → Source: **GitHub Actions**.
 3. **Auf `main` bringen.** Der Workflow läuft nur auf dem Standard-Branch. Sobald der Code auf `main` liegt, startet der erste Lauf automatisch. Er dauert beim ersten Mal 10 bis 15 Minuten, danach etwa 5 Minuten pro Stunde.
-4. **Optional: Quoten von Tipico, Betano und Winamax.** Kostenlosen Schlüssel auf the-odds-api.com holen und unter Settings → Secrets and variables → Actions → New repository secret als `ODDS_API_KEY` speichern.
+4. **Optional: Quoten von Tipico, Betano und Winamax.**
+   1. Auf the-odds-api.com den kostenlosen Plan „Starter“ wählen und mit E-Mail-Adresse anmelden. Der Schlüssel kommt per E-Mail, eine lange Zeichenfolge aus Buchstaben und Zahlen.
+   2. Im Repository: Settings → Secrets and variables → Actions → New repository secret.
+   3. Name: `ODDS_API_KEY`, Secret: den Schlüssel einfügen, Add secret.
+   4. Actions → „Quotenradar aktualisieren“ → Run workflow. Im Protokoll steht danach „Quotenvergleich: … Quoten geladen, noch … Abfragen diesen Monat“.
+
+   Die Quoten werden einmal am Tag für 11 große Ligen geladen (Bundesliga, 2. Bundesliga, Premier League, LaLiga, Serie A, Ligue 1, Champions League, Europa League, NBA, NFL, NHL). Das sind rund 330 der 500 kostenlosen Abfragen pro Monat.
 
 Die Adresse der App steht danach unter Settings → Pages, hier: `https://steffentigges.github.io/quotenradar/`. Am Tablet im Browser öffnen und „Zum Home-Bildschirm hinzufügen“ wählen, dann startet Quotenradar wie eine App.
 
