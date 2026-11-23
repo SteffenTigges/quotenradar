@@ -187,3 +187,39 @@ SPORT_NAME = {
     "pickleball": "Pickleball", "lacrosse": "Lacrosse", "other": "Sonstiges",
 }
 WALLET_DE = {"Sharp": "Profi", "Neutral": "Neutral", "Frische Wallet": "Neues Konto", "Dumb Money": "Verlierer"}
+
+
+# ---------------------------------------------------------------- Wichtigkeit
+# Stufe 1 = Topspiele (große Ligen, die man in Deutschland verfolgt), 4 = Rest.
+# Innerhalb einer Stufe zählt die Reihenfolge der Liste (NBA vor NFL vor ...).
+LEAGUE_TIERS: list[tuple[int, str | None, str]] = [
+    # (Stufe, Sportart oder None für alle, Liga als regulärer Ausdruck auf den ganzen Namen)
+    (1, "soccer", r"uefa champions league"), (1, "soccer", r"bundesliga"), (1, "basketball", r"nba"),
+    (1, "soccer", r"premier league"), (1, "american-football", r"nfl"), (1, "soccer", r"dfb[- ]pokal"),
+    (1, "soccer", r"fifa world cup|wm.*|uefa euro.*|em.*|uefa nations league"),
+    (1, "soccer", r"laliga"), (1, "soccer", r"serie a"), (1, "soccer", r"ligue 1"), (1, "hockey", r"nhl"),
+    (1, "tennis", r"australian open|french open|roland garros|wimbledon|us open"),
+    (1, "darts", r".*world (darts )?championship.*|premier league( darts)?"),
+    (2, "soccer", r"uefa europa league"), (2, "soccer", r"uefa (europa )?conference league"), (2, "soccer", r"2\. bundesliga"),
+    (2, "hockey", r"del"), (2, "basketball", r"euroleague"), (2, "darts", r".*"), (2, "tennis", r"atp tour|wta tour|atp|wta"),
+    (2, "soccer", r"efl championship|championship"), (2, "soccer", r"eredivisie"), (2, "soccer", r"primeira liga|liga portugal"),
+    (2, "soccer", r"s[üu]per lig"), (2, "soccer", r"fa cup|copa del rey|coppa italia|club world cup|copa libertadores"),
+    (2, "baseball", r"mlb"), (2, "american-football", r"college football|ncaaf"), (2, "soccer", r"mls"),
+    (2, "handball", r".*bundesliga.*|ehf.*"),
+    (3, "basketball", r"college basketball|ncaab|wnba|bbl|basketball bundesliga|eurocup"),
+    (3, "hockey", r"khl|shl|liiga|czech extraliga|national league|ahl"),
+    (3, "soccer", r"3\. liga|serie b|laliga ?2|ligue 2|league one|scottish premiership|brasileir[ãa]o s[ée]rie a|"
+                  r"liga profesional.*|belgian pro league|jupiler pro league|swiss super league|austrian bundesliga|"
+                  r"liga mx|saudi pro league|copa sudamericana|danish superliga|eliteserien|allsvenskan"),
+    (3, "tennis", r"atp challenger|challenger"),
+]
+_TIER_RX = [(t, fam, re.compile(rx, re.I)) for t, fam, rx in LEAGUE_TIERS]
+
+
+def league_tier(family: str | None, league: str | None) -> tuple[int, int]:
+    """Stufe (1–4) und Rang innerhalb der Liste; kleiner = wichtiger."""
+    name = (league or "").strip()
+    for i, (tier, fam, rx) in enumerate(_TIER_RX):
+        if (fam is None or fam == family) and rx.fullmatch(name):
+            return tier, i
+    return 4, len(_TIER_RX)

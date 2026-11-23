@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 
 from . import backtest, darts, fx, games, injuries, whales
+from .families import SPORT_NAME, WALLET_DE, league_tier, odds_link, outcome_de, parse_sides
 from .injuries import status_de
-from .families import SPORT_NAME, WALLET_DE, odds_link, outcome_de, parse_sides
 
 MAX_GAMES = 400
 SPORT_ORDER = ["soccer", "basketball", "darts", "hockey", "american-football", "tennis", "handball", "baseball", "volleyball", "cricket"]
@@ -75,14 +75,15 @@ def export_games(hours: int = 48) -> list[dict]:
             "link": odds_link(f"{g['a']} vs. {g['b']}", g["family"]), "key": gkey(g["a"], g["b"]),
             "weight": g.get("liquidity") or 0,
         }
+        d["tier"], d["rank"] = league_tier(g["family"], g["league"])
         if g.get("darts"):
             keep = ("avg", "first9", "s180", "checkout", "legs_won", "high_co")
             d["darts"] = {"a": {k: g["darts"]["a"].get(k) for k in keep}, "b": {k: g["darts"]["b"].get(k) for k in keep},
                           "format": g["darts"].get("format")}
         out.append(_clean(d))
     rank = {s: i for i, s in enumerate(SPORT_ORDER)}
-    # Wichtigste zuerst behalten: mit Buchmacherquoten, große Sportarten, hohe Aufmerksamkeit
-    out.sort(key=lambda d: (0 if d["odds"] else 1, rank.get(d["sport"], 99), -(d["weight"] or 0)))
+    # Wichtigste zuerst behalten: wichtige Ligen, mit Buchmacherquoten, große Sportarten, hohe Aufmerksamkeit
+    out.sort(key=lambda d: (d["tier"], 0 if d["odds"] else 1, rank.get(d["sport"], 99), -(d["weight"] or 0)))
     out = out[:MAX_GAMES]
     out.sort(key=lambda d: d["start"])
     for d in out:

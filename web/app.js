@@ -3,7 +3,7 @@
   "use strict";
 
   var D = null;
-  var state = { sport: "all", q: "", bank: 1000, frac: 0.25 };
+  var state = { day: null, sport: "all", q: "", bank: 1000, frac: 0.25 };
   try {
     var saved = JSON.parse(localStorage.getItem("edgelab-settings") || "{}");
     if (saved.bank) state.bank = saved.bank;
@@ -31,8 +31,8 @@
   var WD = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
   var MO = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
-  function pct(p, d) { return p == null ? "–" : (d ? nf1 : nf0).format(p * 100) + " %"; }
-  function signed(x) { return x == null ? "–" : (x >= 0 ? "+" : "−") + nf1.format(Math.abs(x * 100)) + " %"; }
+  function pct(p, d) { return p == null ? "–" : (d ? nf1 : nf0).format(p * 100) + "\u00a0%"; }
+  function signed(x) { return x == null ? "–" : (x >= 0 ? "+" : "−") + nf1.format(Math.abs(x * 100)) + "\u00a0%"; }
   function odds(x) { return x ? nf2.format(x) : "–"; }
   function fair(p) { return p ? nf2.format(1 / p) : "–"; }
   function eur(x, cents) { return x == null ? "–" : (cents ? eurF2 : eurF).format(x); }
@@ -79,38 +79,81 @@
       (x ? '<i class="sd" style="flex:' + x / t + '"></i>' : "") + '<i class="sb" style="flex:' + b / t + '"></i>' + notch + "</div>";
   }
 
+  // ---------------------------------------------------------------- Wichtigkeit & Gruppierung
+  function tierOf(g) { return g.tier || 4; }
+  function byImportance(a, b) {
+    return tierOf(a) - tierOf(b) || (a.rank || 99) - (b.rank || 99) || (b.odds && b.odds.length ? 1 : 0) - (a.odds && a.odds.length ? 1 : 0) || date(a.start) - date(b.start);
+  }
+  function days() {
+    var seen = {}, out = [];
+    D.games.forEach(function (g) {
+      var k = dayKey(g.start);
+      if (!seen[k]) { seen[k] = { k: k, label: dayLabel(g.start), d: date(g.start), n: 0 }; out.push(seen[k]); }
+      seen[k].n++;
+    });
+    return out.sort(function (a, b) { return a.d - b.d; });
+  }
+  function favOdds(g) {
+    // Beste Anbieterquote auf den Favoriten (für die Liste)
+    var pr = probs(g) || {}, fav = (pr.a || 0) >= (pr.b || 0) ? g.a : g.b, best = null;
+    (g.odds || []).forEach(function (r) {
+      if (r.tipp === fav || r.tipp === "Sieg " + fav) {
+        (g.bookList || []).forEach(function (b) { if (r[b] && (!best || r[b] > best.o)) best = { o: r[b], book: b, name: fav }; });
+      }
+    });
+    return best;
+  }
+
   // ---------------------------------------------------------------- Ansicht: Spiele
   function viewGames() {
+    var ds = days();
+    if (!state.day || !ds.some(function (d) { return d.k === state.day; })) state.day = ds.length ? ds[0].k : null;
+    var dayGames = D.games.filter(function (g) { return dayKey(g.start) === state.day; });
     var sports = {};
-    D.games.forEach(function (g) { sports[g.sport] = g.sportName; });
-    var keys = Object.keys(sports).sort(function (a, b) { return count(b) - count(a); });
-    function count(s) { return D.games.filter(function (g) { return g.sport === s; }).length; }
+    dayGames.forEach(function (g) { sports[g.sport] = sports[g.sport] || { name: g.sportName, n: 0, t: 9 }; sports[g.sport].n++; sports[g.sport].t = Math.min(sports[g.sport].t, tierOf(g)); });
+    var keys = Object.keys(sports).sort(function (a, b) { return sports[a].t - sports[b].t || sports[b].n - sports[a].n; });
+    if (state.sport !== "all" && !sports[state.sport]) state.sport = "all";
     var q = state.q.trim().toLowerCase();
-    var list = D.games.filter(function (g) {
+    var list = (q ? D.games : dayGames).filter(function (g) {
       return (state.sport === "all" || g.sport === state.sport) && (!q || (g.a + " " + g.b + " " + g.league).toLowerCase().indexOf(q) >= 0);
-    });
+    }).sort(byImportance);
 
-    var html = '<h1>Spiele</h1><p class="lead">Wer gewinnt mit welcher Wahrscheinlichkeit. Die Linie unter jedem Spiel teilt sich nach der Siegchance, die grüne Kerbe zeigt, wo die Buchmacher stehen.</p>' +
+    var h = '<div class="days" role="tablist" aria-label="Tag">' + ds.map(function (d) {
+      return '<button class="day-tab" role="tab" data-day="' + d.k + '" aria-selected="' + (d.k === state.day && !q) + '"><b>' + esc(d.label.split(",")[0]) + "</b><span>" +
+        (d.label.indexOf(",") > 0 ? esc(d.label.split(", ")[1]) + ", " : "") + d.n + " Spiele</span></button>";
+    }).join("") + "</div>" +
       '<div class="filters"><div class="sports" role="group" aria-label="Sportart">' +
       '<button class="chip" data-sport="all" aria-pressed="' + (state.sport === "all") + '">Alle</button>' +
-      keys.map(function (k) { return '<button class="chip" data-sport="' + esc(k) + '" aria-pressed="' + (state.sport === k) + '">' + esc(sports[k]) + "</button>"; }).join("") +
-      '</div><input class="search" id="q" type="search" placeholder="Team suchen" aria-label="Team suchen" value="' + esc(state.q) + '"></div>';
+      keys.map(function (k) { return '<button class="chip" data-sport="' + esc(k) + '" aria-pressed="' + (state.sport === k) + '">' + esc(sports[k].name) + "</button>"; }).join("") +
+      '</div><input class="search" id="q" type="search" placeholder="Team oder Liga suchen" aria-label="Team oder Liga suchen" value="' + esc(state.q) + '"></div>';
 
     if (!list.length) {
-      html += '<div class="empty"><p>Keine Spiele gefunden.</p><button class="btn" id="reset">Filter zurücksetzen</button></div>';
+      h += '<div class="empty"><p>Keine Spiele gefunden.</p><button class="btn" id="reset">Filter zurücksetzen</button></div>';
     } else {
-      var groups = [], cur = null;
-      list.forEach(function (g) {
-        var k = dayKey(g.start);
-        if (!cur || cur.k !== k) { cur = { k: k, label: dayLabel(g.start), items: [] }; groups.push(cur); }
-        cur.items.push(g);
-      });
-      groups.forEach(function (grp) {
-        html += '<h2 class="day">' + esc(grp.label) + '</h2><div class="list">' + grp.items.map(gameRow).join("") + "</div>";
-      });
-    }
-    $("#view").innerHTML = html;
+      // Topspiele: die wichtigsten Begegnungen des Tages als große Karten
+      var top = q ? [] : list.filter(function (g) { return tierOf(g) === 1; }).slice(0, 6);
+      if (!top.length && !q) top = list.filter(function (g) { return tierOf(g) === 2; }).slice(0, 4);
+      if (top.length) h += '<h2 class="block-title">Topspiele</h2><div class="features">' + top.map(featureCard).join("") + "</div>";
 
+      // Danach Liga für Liga, wichtigste zuerst
+      var shown = {}; top.forEach(function (g) { shown[g.id] = 1; });
+      var leagues = [], idx = {};
+      list.filter(function (g) { return !shown[g.id]; }).forEach(function (g) {
+        var k = g.sport + "|" + g.league;
+        if (!idx[k]) { idx[k] = { name: g.league, sport: g.sportName, tier: tierOf(g), items: [] }; leagues.push(idx[k]); }
+        idx[k].items.push(g);
+      });
+      leagues.forEach(function (l) { l.items.sort(function (a, b) { return date(a.start) - date(b.start); }); });
+      var main = leagues.filter(function (l) { return l.tier < 4 || q; }), rest = leagues.filter(function (l) { return l.tier >= 4 && !q; });
+      h += main.map(leagueBlock).join("");
+      if (rest.length) {
+        var n = rest.reduce(function (s, l) { return s + l.items.length; }, 0);
+        h += '<details class="more-leagues"><summary><span>Weitere Ligen</span><span class="hint">' + rest.length + " Ligen, " + n + " Spiele</span></summary>" + rest.map(leagueBlock).join("") + "</details>";
+      }
+    }
+    $("#view").innerHTML = h;
+
+    $$("[data-day]").forEach(function (b) { b.addEventListener("click", function () { state.day = b.getAttribute("data-day"); state.q = ""; viewGames(); }); });
     $$("[data-sport]").forEach(function (b) { b.addEventListener("click", function () { state.sport = b.getAttribute("data-sport"); viewGames(); }); });
     var inp = $("#q");
     inp.addEventListener("input", function () {
@@ -120,24 +163,93 @@
     var r = $("#reset"); if (r) r.addEventListener("click", function () { state.sport = "all"; state.q = ""; viewGames(); });
   }
 
+  function leagueBlock(l) {
+    return '<section class="league-block"><h2 class="league-head"><span>' + esc(l.name) + '</span><span class="hint">' + esc(l.sport) + ", " + l.items.length + (l.items.length === 1 ? " Spiel" : " Spiele") + "</span></h2>" +
+      '<div class="list">' + l.items.map(gameRow).join("") + "</div></section>";
+  }
+
+  function featureCard(g) {
+    var pr = probs(g) || {}, favA = (pr.a || 0) >= (pr.b || 0), v = bestValue(g), fo = favOdds(g);
+    var foot = v ? '<span class="tag-value">Value ' + signed(v.value) + " bei " + esc(v.best) + "</span>"
+      : fo ? '<span>Beste Quote ' + esc(fo.name) + " <b>" + odds(fo.o) + "</b> bei " + esc(fo.book) + "</span>"
+      : '<span>Faire Quote ' + esc(favA ? g.a : g.b) + " <b>" + fair(favA ? pr.a : pr.b) + "</b></span>";
+    return '<a class="feature" href="#/spiel/' + encodeURIComponent(g.id) + '">' +
+      '<div class="f-meta"><span>' + esc(g.league) + "</span><span>" + time(g.start) + " Uhr</span></div>" +
+      '<div class="f-team' + (favA ? " fav" : "") + '"><span class="n">' + esc(g.a) + '</span><span class="p">' + pct(pr.a) + "</span></div>" +
+      '<div class="f-team' + (!favA ? " fav" : "") + '"><span class="n">' + esc(g.b) + '</span><span class="p">' + pct(pr.b) + "</span></div>" +
+      (pr.draw != null ? '<div class="f-draw">Unentschieden ' + pct(pr.draw) + "</div>" : "") +
+      scale(pr, g.model ? g.books : null, false) +
+      '<div class="f-foot">' + foot + (g.injuries ? '<span class="tag-warn">Ausfälle</span>' : "") + "</div></a>";
+  }
+
   function gameRow(g) {
     var pr = probs(g) || {};
     var favA = (pr.a || 0) >= (pr.b || 0);
-    var v = bestValue(g), w = whalesFor(g).length;
+    var v = bestValue(g), w = whalesFor(g).length, fo = favOdds(g);
     var marks = [];
-    if (v) marks.push('<span class="mark-value">Value bei ' + esc(v.best) + "</span>");
-    if (g.injuries) marks.push('<span class="mark-warn">Ausfälle</span>');
+    if (v) marks.push('<span class="tag-value">Value bei ' + esc(v.best) + "</span>");
+    if (g.injuries) marks.push('<span class="tag-warn">Ausfälle</span>');
     if (w) marks.push('<span class="mark-quiet">' + w + (w === 1 ? " Großwette" : " Großwetten") + "</span>");
     if (!g.model) marks.push('<span class="mark-quiet">nur Buchmacher</span>');
     return '<a class="game" href="#/spiel/' + encodeURIComponent(g.id) + '">' +
-      '<div class="when"><div class="time">' + time(g.start) + '</div><div class="league">' + esc(g.league) + "</div></div>" +
+      '<div class="when"><div class="time">' + time(g.start) + "</div>" + (state.q ? '<div class="league">' + esc(dayLabel(g.start)) + "</div>" : "") + "</div>" +
       '<div class="teams">' +
       '<div class="team' + (favA ? " fav" : "") + '"><span>' + esc(g.a) + '</span><span class="pct">' + pct(pr.a) + "</span></div>" +
       '<div class="team' + (!favA ? " fav" : "") + '"><span>' + esc(g.b) + '</span><span class="pct">' + pct(pr.b) + "</span></div>" +
       (pr.draw != null ? '<div class="team minor"><span>Unentschieden</span><span class="pct">' + pct(pr.draw) + "</span></div>" : "") +
       scale(pr, g.model ? g.books : null, false) +
       (marks.length ? '<div class="marks">' + marks.join("") + "</div>" : "") +
-      "</div>" + CHEV + "</a>";
+      "</div>" +
+      '<div class="best-odds">' + (fo ? "<b>" + odds(fo.o) + "</b><span>" + esc(fo.book) + "</span>" : "<b>" + fair(favA ? pr.a : pr.b) + "</b><span>fair</span>") + "</div>" +
+      CHEV + "</a>";
+  }
+
+  // ---------------------------------------------------------------- Die wichtigsten Wetten je Sportart
+  var KEY_MARKETS = {
+    soccer: [["Ergebnis (1X2)"], ["Über/Unter Tore", "2,5", "Über/Unter 2,5 Tore"], ["Beide treffen"], ["Doppelte Chance"]],
+    basketball: [["Sieger"], ["Handicap (faire Linie)", null, "Handicap"], [/^Gesamtpunkte/, "mid", "Gesamtpunkte"]],
+    "american-football": [["Sieger"], ["Handicap (faire Linie)", null, "Handicap"], [/^Gesamtpunkte/, "mid", "Gesamtpunkte"]],
+    hockey: [["Sieger inkl. Verlängerung", null, "Sieger inkl. Verlängerung"], ["3-Weg nach 60 Minuten"], ["Über/Unter Tore", "5,5", "Über/Unter 5,5 Tore"], ["Puckline"], ["Sieger"]],
+    tennis: [["Sieger"], ["Über/Unter Sätzen", null, "Über/Unter Sätze"], ["Ergebnis in Sätzen"]]
+  };
+  function keyMarkets(g) {
+    var G = g.groups || [], out = [];
+    var spec = KEY_MARKETS[g.sport];
+    if (!spec) return G.slice(0, 3).map(function (x) { return { title: x.group, items: x.items }; });
+    spec.forEach(function (s) {
+      if (out.length >= 4) return;
+      var grp = G.filter(function (x) { return s[0] instanceof RegExp ? s[0].test(x.group) : x.group === s[0]; })[0];
+      if (!grp) return;
+      var items = grp.items;
+      if (s[1] === "mid" || (s[1] && !items.some(function (i) { return i.label.slice(-s[1].length) === s[1]; }))) {
+        var m = Math.floor(items.length / 4) * 2; items = items.slice(m, m + 2);
+      } else if (s[1]) {
+        items = items.filter(function (i) { return i.label.slice(-s[1].length) === s[1]; });
+      }
+      var title = s[2] || grp.group;
+      if (s[1] === "mid" && items[0]) title = "Gesamtpunkte " + items[0].label.replace(/^(Über|Unter) /, "");
+      out.push({ title: title, items: items });
+    });
+    return out;
+  }
+  function bookFor(g, item) {
+    var res = null;
+    (g.odds || []).forEach(function (r) {
+      if ((r.tipp === item.label || r.tipp === "Sieg " + item.label) && Math.abs((r.p || 0) - item.p) < 0.006) {
+        (g.bookList || []).forEach(function (b) { if (r[b] && (!res || r[b] > res.o)) res = { o: r[b], book: b, value: r.unsure ? null : r.value }; });
+      }
+    });
+    return res;
+  }
+  function marketCard(g, m) {
+    var top = m.items.reduce(function (a, x) { return x.p > a.p ? x : a; }, m.items[0]);
+    return '<div class="mcard"><h3>' + esc(m.title) + '</h3><div class="opts n' + Math.min(m.items.length, 4) + '">' + m.items.map(function (x) {
+      var bk = bookFor(g, x), val = bk && bk.value != null && bk.value > 0.02;
+      return '<div class="opt' + (x === top ? " lead-opt" : "") + (val ? " has-value" : "") + '"><div class="o-lbl">' + esc(x.label) + "</div>" +
+        '<div class="o-p">' + pct(x.p) + "</div>" +
+        '<div class="o-q"><span>fair <b>' + odds(x.odds) + "</b></span>" + (bk ? '<span class="o-bk">' + esc(bk.book) + " <b>" + odds(bk.o) + "</b></span>" : "") + "</div>" +
+        (val ? '<div class="tag-value">' + signed(bk.value) + " Vorteil</div>" : "") + "</div>";
+    }).join("") + "</div></div>";
   }
 
   // ---------------------------------------------------------------- Ansicht: Spiel
@@ -152,30 +264,37 @@
     verdict += "</p>";
 
     var h = '<a class="back" href="#/spiele">' + BACK + "Alle Spiele</a>" +
-      '<section class="hero"><div class="meta">' + esc(g.sportName) + ", " + esc(g.league) + ", " + longDate(g.start) + "</div>" +
+      '<section class="hero"><div class="meta"><span>' + esc(g.league) + "</span><span>" + esc(longDate(g.start)) + "</span></div>" +
       '<div class="duel"><div class="side' + (favA ? "" : " dim") + '"><div class="name">' + esc(g.a) + '</div><div class="big">' + pct(pr.a) + "</div></div>" +
       '<div class="mid">' + (pr.draw != null ? "Remis<b>" + pct(pr.draw) + "</b>" : "") + "</div>" +
       '<div class="side right' + (favA ? " dim" : "") + '"><div class="name">' + esc(g.b) + '</div><div class="big">' + pct(pr.b) + "</div></div></div>" +
       scale(pr, g.model ? bk : null, true) +
-      (g.model && bk ? '<div class="legend"><span><span class="k" style="background:var(--a)"></span>Modell</span><span><span class="k" style="background:var(--value)"></span>Buchmacher</span></div>' : "") +
-      verdict + (g.injuries ? '<div class="note"><b>Ausfälle eingerechnet.</b> ' + esc(g.injuries) + "</div>" : "") + "</section>";
+      (g.model && bk ? '<div class="legend"><span><span class="k ka"></span>Modell</span><span><span class="k kb"></span>Buchmacher</span></div>' : "") +
+      verdict + "</section>" +
+      (g.injuries ? '<div class="note"><b>Ausfälle eingerechnet</b>' + esc(g.injuries) + "</div>" : "");
 
-    // Quoten
-    h += '<h2 class="section">Quoten</h2>';
+    // Die wichtigsten Wetten
+    var km = keyMarkets(g);
+    if (km.length) {
+      h += '<h2 class="section">Die wichtigsten Wetten</h2><div class="mgrid">' + km.map(function (m) { return marketCard(g, m); }).join("") + "</div>" +
+        '<p class="foot-note">Die große Zahl ist die Chance laut Modell, darunter die faire Quote' + (g.odds && g.odds.length ? " und die beste Quote der Anbieter. Gelb markiert: Der Anbieter zahlt mehr als fair." : ".") + "</p>";
+    }
+
+    // Quotenvergleich
     if (g.odds && g.odds.length) {
       var books = g.bookList || [];
-      h += '<div class="panel table-wrap"><table><thead><tr><th>Tipp</th><th>Fair</th>' + books.map(function (b) { return "<th>" + esc(b) + "</th>"; }).join("") + "<th>Value</th></tr></thead><tbody>" +
+      h += '<h2 class="section">Quotenvergleich</h2><div class="panel table-wrap"><table><thead><tr><th>Tipp</th><th>Fair</th>' + books.map(function (b) { return "<th>" + esc(b) + "</th>"; }).join("") + "<th>Vorteil</th></tr></thead><tbody>" +
         g.odds.map(function (r) {
           var mx = Math.max.apply(null, books.map(function (b) { return r[b] || 0; }));
           return "<tr><td>" + esc(r.tipp) + "</td><td>" + fair(r.p) + "</td>" +
-            books.map(function (b) { return r[b] ? "<td" + (r[b] === mx ? ' class="best"' : "") + ">" + odds(r[b]) + "</td>" : '<td class="na">–</td>'; }).join("") +
+            books.map(function (b) { return r[b] ? "<td" + (r[b] === mx && books.length > 1 ? ' class="best"' : "") + ">" + odds(r[b]) + "</td>" : '<td class="na">–</td>'; }).join("") +
             (r.unsure ? '<td class="na">unsicher</td>' : r.value != null && r.value > 0 ? '<td class="pos">' + signed(r.value) + "</td>" : '<td class="na">' + (r.value != null ? signed(r.value) : "–") + "</td>") + "</tr>";
         }).join("") + "</tbody></table></div>" +
-        '<p class="foot-note">Fair ist die Quote, die das Modell für richtig hält. Liegt ein Anbieter darüber, steht der Vorteil rechts. „Unsicher“ heißt: Modell und Anbieter liegen so weit auseinander, dass dem Modell vermutlich eine Information fehlt.</p>' +
+        '<p class="foot-note">„Unsicher“ heißt: Modell und Anbieter liegen so weit auseinander, dass dem Modell vermutlich eine Information fehlt.</p>' +
         '<div class="links">' + books.filter(function (b) { return BOOK_URL[b]; }).map(function (b) { return '<a class="btn" href="' + BOOK_URL[b] + '" target="_blank" rel="noopener">' + esc(b) + " öffnen</a>"; }).join("") + "</div>";
     } else {
-      h += '<p class="prose">Für dieses Spiel liegen noch keine Quoten von Tipico, Betano oder Winamax vor.</p>' +
-        '<div class="links"><a class="btn" href="' + esc(g.link) + '" target="_blank" rel="noopener">Quoten bei OddsPortal vergleichen</a></div>';
+      h += '<h2 class="section">Quotenvergleich</h2><p class="prose">Für dieses Spiel liegen keine Quoten von Tipico, Betano oder Winamax vor. Die Anbieter werden einmal am Tag für die großen Ligen abgefragt.</p>' +
+        '<div class="links"><a class="btn" href="' + esc(g.link) + '" target="_blank" rel="noopener">Quoten bei OddsPortal ansehen</a></div>';
     }
 
     // Darts-Statistik
@@ -188,25 +307,10 @@
           var f = function (x) { return x == null ? "–" : r[3] === "pct" ? nf1.format(x) + " %" : r[3].format(x); };
           return "<tr><td>" + r[0] + "</td><td" + (r[1] > r[2] ? ' class="best"' : "") + ">" + f(r[1]) + "</td><td" + (r[2] > r[1] ? ' class="best"' : "") + ">" + f(r[2]) + "</td></tr>";
         }).join("") + "</tbody></table></div>" +
-        '<p class="foot-note">Quelle: Darts Orakel.' + (g.darts.format ? " Gespielt wird " + esc(g.darts.format) + "." : "") + " Aus dem Average-Unterschied ergibt sich die Chance pro Leg und daraus alle Wetten unten.</p>";
+        '<p class="foot-note">Quelle: Darts Orakel.' + (g.darts.format ? " Gespielt wird " + esc(g.darts.format) + "." : "") + "</p>";
     }
 
-    // Großwetten auf dieses Spiel
-    var ws = whalesFor(g);
-    if (ws.length) h += '<h2 class="section">Großwetten</h2>' + whaleGroup(ws, null);
-
-    // Alle Wetten
-    if (g.groups && g.groups.length) {
-      h += '<h2 class="section">Alle Wetten mit fairer Quote</h2><div class="panel">' + g.groups.map(function (gr, i) {
-        var top = gr.items.reduce(function (m, x) { return x.p > m.p ? x : m; }, gr.items[0]);
-        return '<details class="market"' + (i === 0 ? " open" : "") + "><summary><span>" + esc(gr.group) + '</span><span class="hint">' + esc(top.label) + " " + pct(top.p) + "</span></summary>" +
-          '<div class="picks">' + gr.items.map(function (x) {
-            return '<div class="pick"><span class="lbl">' + esc(x.label) + '</span><span class="num"><span class="p">' + pct(x.p) + '</span><span class="q">' + odds(x.odds) + "</span></span></div>";
-          }).join("") + "</div></details>";
-      }).join("") + "</div>";
-    }
-
-    // Spielerwetten: eine Zeile pro Spieler, Punkte / Rebounds / Assists nebeneinander
+    // Spielerwetten
     if (g.props && g.props.length) {
       var cols = [["pts", "Punkte"], ["reb", "Rebounds"], ["ast", "Assists"]];
       var propRow = function (p) {
@@ -218,13 +322,25 @@
           }).join("") + "</tr>";
       };
       var head = "<thead><tr><th>Spieler</th>" + cols.map(function (c) { return "<th>" + c[1] + "</th>"; }).join("") + "</tr></thead>";
-      var top = g.props.slice(0, 10), rest = g.props.slice(10);
+      var top = g.props.slice(0, 6), rest = g.props.slice(6);
       h += '<h2 class="section">Spielerwetten</h2><div class="panel table-wrap"><table class="props">' + head + "<tbody>" + top.map(propRow).join("") + "</tbody></table></div>";
-      if (rest.length) {
-        h += '<details class="more"><summary>' + rest.length + " weitere Spieler</summary>" +
-          '<div class="panel table-wrap"><table class="props">' + head + "<tbody>" + rest.map(propRow).join("") + "</tbody></table></div></details>";
-      }
-      h += '<p class="foot-note">Linie ist der Saisonschnitt mit „,5“. Darunter die Chance auf „über“ und die faire Quote. Berechnet aus den letzten 20 Spielen mit der echten Schwankung des Spielers.</p>';
+      if (rest.length) h += '<details class="more"><summary>' + rest.length + " weitere Spieler</summary>" + '<div class="panel table-wrap"><table class="props">' + head + "<tbody>" + rest.map(propRow).join("") + "</tbody></table></div></details>";
+      h += '<p class="foot-note">Linie ist der Saisonschnitt mit „,5“, darunter die Chance auf „über“ und die faire Quote.</p>';
+    }
+
+    // Großwetten auf dieses Spiel
+    var ws = whalesFor(g);
+    if (ws.length) h += '<h2 class="section">Großwetten</h2>' + whaleGroup(ws, null);
+
+    // Alle Wetten, eingeklappt
+    if (g.groups && g.groups.length) {
+      h += '<h2 class="section">Alle Wetten</h2><div class="panel">' + g.groups.map(function (gr) {
+        var top = gr.items.reduce(function (m, x) { return x.p > m.p ? x : m; }, gr.items[0]);
+        return '<details class="market"><summary><span>' + esc(gr.group) + '</span><span class="hint">' + esc(top.label) + " " + pct(top.p) + "</span></summary>" +
+          '<div class="picks">' + gr.items.map(function (x) {
+            return '<div class="pick"><span class="lbl">' + esc(x.label) + '</span><span class="num"><span class="p">' + pct(x.p) + '</span><span class="q">' + odds(x.odds) + "</span></span></div>";
+          }).join("") + "</div></details>";
+      }).join("") + "</div>";
     }
     $("#view").innerHTML = h;
     window.scrollTo(0, 0);
