@@ -371,7 +371,7 @@
             '<td><button class="text-btn" data-keep="' + i + '">Merken</button></td></tr>';
         }).join("") + "</tbody></table></div>";
     }
-    h += '<p class="foot-note">Ein Vorteil heißt nur, dass Modell und Anbieter sich nicht einig sind. In vielen Sportarten liegen die Buchmacher öfter richtig. Unter Info steht, wo das Modell mithalten kann.</p>';
+    h += '<p class="foot-note">Ausgeblendet sind Tipps, bei denen das Modell mehr als 10 Prozentpunkte oder mehr als das 1,3-Fache von der Einschätzung aller Anbieter zusammen abweicht. So große Abstände sind fast immer ein Modellfehler, etwa wegen einer fehlenden Aufstellung. Auch die übrigen Vorteile heißen nur, dass Modell und Anbieter sich nicht einig sind. Unter Info steht, wo das Modell mithalten kann.</p>';
     $("#view").innerHTML = h;
     $("#bank").addEventListener("change", function (e) { state.bank = Math.max(0, +e.target.value || 0); save(); viewValue(); });
     $("#frac").addEventListener("change", function (e) { state.frac = +e.target.value; save(); viewValue(); });

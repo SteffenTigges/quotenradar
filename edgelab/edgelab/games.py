@@ -374,25 +374,53 @@ def books_rows(g: dict) -> list[dict]:
     if has_draw and "draw" not in model:
         three = next((grp["items"] for grp in g.get("groups") or [] if grp["group"].startswith("3-Weg")), None)
         model = {"a": three[0]["p"], "draw": three[1]["p"], "b": three[2]["p"]} if three and len(three) == 3 else {}
+    cons = books_consensus(g) or {}
     rows = []
     for key, label in (("a", f"Sieg {g['a']}"), ("draw", "Unentschieden"), ("b", f"Sieg {g['b']}")):
         offers = {book: o.get(key) for book, o in bk.get("h2h", {}).items() if o.get(key)}
         if not offers:
             continue
-        rows.append(_book_row(label, model.get(key), offers))
+        rows.append(_book_row(label, model.get(key), offers, cons.get(key)))
     for line, books in sorted(bk.get("totals", {}).items(), key=lambda kv: float(kv[0])):
+        q_over = _pair_consensus(books)
         for side, name in (("over", "Über"), ("under", "Unter")):
             offers = {book: o.get(side) for book, o in books.items() if o.get(side)}
             if offers:
                 lab = f"{name} {line.replace('.', ',')}"
-                rows.append(_book_row(lab, labels.get(lab), offers))
+                q = None if q_over is None else (q_over if side == "over" else 1 - q_over)
+                rows.append(_book_row(lab, labels.get(lab), offers, q))
     return rows
 
 
-def _book_row(label: str, p: float | None, offers: dict[str, float]) -> dict:
+def _pair_consensus(books: dict) -> float | None:
+    """Faire Wahrscheinlichkeit für „über“ laut Anbietern (Marge herausgerechnet, Durchschnitt)."""
+    qs = [(1 / o["over"]) / (1 / o["over"] + 1 / o["under"]) for o in books.values() if o.get("over") and o.get("under")]
+    return sum(qs) / len(qs) if qs else None
+
+
+# Ab wann Modell und Anbieter „zu weit auseinander“ liegen. Im Backtest sind die Anbieter meist genauer als das
+# Modell; echte Vorteile liegen bei wenigen Prozentpunkten. Größere Abstände heißen fast immer: dem Modell fehlt
+# eine Information (Aufstellung, Rotation, Motivation, Wechsel), kein Geschenk des Anbieters.
+MARKET_GAP = 0.10     # mehr als 10 Prozentpunkte Unterschied
+MARKET_RATIO = 1.3    # oder eine Seite mehr als 1,3-mal so wahrscheinlich wie laut Anbietern
+
+
+def disagrees_with_market(p: float, q: float) -> bool:
+    if abs(p - q) > MARKET_GAP:
+        return True
+    return max(p / max(q, 1e-6), (1 - p) / max(1 - q, 1e-6)) > MARKET_RATIO
+
+
+def _book_row(label: str, p: float | None, offers: dict[str, float], q: float | None = None) -> dict:
+    """q = faire Wahrscheinlichkeit laut allen Anbietern zusammen (ohne Marge)."""
     book, value = bookmakers.best_value(p, offers)
-    # Riesige Abweichung zur Buchmacherquote = meist Modellfehler (fehlende Infos), kein echter Value
-    unsure = bool(p and book and predict.is_suspicious(p, 1 / offers[book]))
+    if not (p and book):
+        unsure = False
+    elif q is not None:
+        unsure = disagrees_with_market(p, q)
+    else:
+        q1 = 1 / offers[book] / 1.05  # keine Gegenseite bekannt: rund 5 % Marge herausrechnen
+        unsure = disagrees_with_market(p, q1)
     row = {"tipp": label, "p": p, "fair": odds(p) if p else None, "best": book, "value": value, "unsure": unsure}
     row.update(offers)
     return row
