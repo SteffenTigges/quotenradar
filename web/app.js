@@ -500,7 +500,7 @@
 
   function stamp() {
     if (!D || !D.updated) return;
-    $("#stamp").textContent = "Stand " + time(D.updated) + " Uhr";
+    var u = date(D.updated); $("#stamp").textContent = "Stand " + u.getDate() + "." + (u.getMonth() + 1) + "., " + time(D.updated) + " Uhr";
   }
 
   // Nur kommende Spiele anzeigen, auch wenn die Datei ein paar Stunden alt ist
