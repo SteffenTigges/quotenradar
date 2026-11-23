@@ -1,0 +1,75 @@
+# Quotenradar: lädt jede Stunde neue Daten (Spiele, Quoten, Verletzungen, Darts, Großwetten),
+# rechnet die Modelle und veröffentlicht die Web-App auf GitHub Pages.
+name: Quotenradar aktualisieren
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # stündlich zur Minute 17
+  workflow_dispatch: {}     # manuell starten: Actions > Quotenradar aktualisieren > Run workflow
+  push:
+    branches: [main]
+    paths: ["web/**", "edgelab/**", ".github/workflows/app.yml"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: edgelab
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: edgelab/requirements-pipeline.txt
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r edgelab/requirements-pipeline.txt
+
+      # Die Datenbank bleibt zwischen den Läufen erhalten, damit nicht jedes Mal 180 Tage neu geladen werden
+      - name: Datenbank aus dem Cache holen
+        uses: actions/cache/restore@v4
+        with:
+          path: edgelab/data
+          key: edgelab-db-${{ github.run_id }}
+          restore-keys: edgelab-db-
+
+      - name: Daten laden, Modelle rechnen, data.json schreiben
+        working-directory: edgelab
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}       # optional: Quoten von Tipico, Betano, Winamax
+          EDGELAB_BACKFILL_DAYS: "180"
+          PYTHONUNBUFFERED: "1"
+        run: python -m edgelab ci --out ../web/data.json
+
+      - name: Datenbank im Cache speichern
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: edgelab/data
+          key: edgelab-db-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
