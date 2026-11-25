@@ -15,7 +15,7 @@
     { id: "value", label: "Value", icon: '<path d="M4 17l5-5 4 4 7-8"/><path d="M15 8h5v5"/>' },
     { id: "spieler", label: "Spieler", icon: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>' },
     { id: "grosswetten", label: "Großwetten", icon: '<circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5c0-1.4 1.1-2 2.5-2s2.5.6 2.5 2-1.1 1.8-2.5 2-2.5.7-2.5 2 1.1 2 2.5 2 2.5-.6 2.5-2"/>' },
-    { id: "wetten", label: "Meine Wetten", icon: '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 9h6M9 13h6M9 17h3"/>' },
+    { id: "wetten", label: "Wetten", icon: '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 9h6M9 13h6M9 17h3"/>' },
     { id: "info", label: "Info", icon: '<circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/>' }
   ];
   var BOOK_URL = {
@@ -376,11 +376,11 @@
     if (!list.length) {
       $("#view").innerHTML = h + '<div class="empty"><p>Gerade stehen keine NBA-Spiele mit Spielerdaten an.</p></div>'; return;
     }
-    var hot = list.filter(function (x) { return x.p.season >= 10 && x.form > 0; }).sort(function (a, b) { return b.form - a.form; }).slice(0, 10);
+    var hot = list.filter(function (x) { return x.p.season >= 15 && x.form > 0 && !/aus|out/i.test(x.p.status || ""); }).sort(function (a, b) { return b.form - a.form; }).slice(0, 10);
     var top = list.slice().sort(function (a, b) { return b.pts.exp - a.pts.exp; }).slice(0, 15);
     h += '<input class="search wide" id="pq" type="search" placeholder="Spieler suchen" aria-label="Spieler suchen">' +
       '<div id="presults"></div>' +
-      '<h2 class="section">Heißeste Spieler</h2><p class="prose small">Die größten Steigerungen: Punkte der letzten 5 Spiele gegenüber dem Saisonschnitt.</p><div class="list">' + hot.map(function (x) { return playerRow(x, true); }).join("") + "</div>" +
+      '<h2 class="section">Heißeste Spieler</h2><p class="prose small">Spieler mit mindestens 15 Punkten im Schnitt, die in den letzten 5 Spielen am deutlichsten darüber lagen.</p><div class="list">' + hot.map(function (x) { return playerRow(x, true); }).join("") + "</div>" +
       '<h2 class="section">Meiste Punkte erwartet</h2><div class="list">' + top.map(function (x) { return playerRow(x, true); }).join("") + "</div>";
     $("#view").innerHTML = h;
     var inp = $("#pq");
@@ -421,7 +421,7 @@
       var main = rows.reduce(function (m, r) { return Math.abs(r.at - 0.5) < Math.abs(m.at - 0.5) ? r : m; }, rows[0]);
       h += '<h2 class="section">Wie viele Punkte?</h2>' +
         '<p class="prose small">„Mindestens 32“ entspricht bei den Anbietern „über 31,5“. Die faire Quote ist der Wert, ab dem sich die Wette laut Modell lohnt. Dunkel markiert: die Linie nahe 50 %, wie sie Anbieter meist anbieten.</p>' +
-        '<div class="panel ladder"><div class="lrow lhead"><span>Punkte</span><span>Chance</span><span class="lq">Faire Quote</span><span class="lx">Genau so viele</span></div>' +
+        '<div class="panel ladder"><div class="lrow lhead"><span>Punkte</span><span>Chance</span><span class="lq">Faire Quote</span><span class="lx">Genau</span></div>' +
         rows.filter(function (r) { return r.at <= 0.97 && r.at >= 0.03; }).map(function (r) {
           return '<div class="lrow' + (r === main ? " main" : "") + '"><span class="ln">mind. <b>' + r.n + "</b></span>" +
             '<span class="lp"><i style="width:' + (r.at * 100) + '%"></i><b>' + pct(r.at) + "</b></span>" +
