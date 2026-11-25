@@ -321,7 +321,12 @@ def compact_props(rows: list[dict]) -> list[dict]:
             stats.append(st)
         order = ["pts", "reb", "ast", "fg3", "pra"]
         stats.sort(key=lambda s: order.index(s["stat"]) if s["stat"] in order else 9)
-        out.append({"player": r["player"], "team": r["team"], "side": r["side"], "min": r["min"], "status": r["status"], "stats": stats})
+        d = {"player": r["player"], "team": r["team"], "side": r["side"], "pos": r.get("pos"), "min": r["min"], "status": r["status"],
+             "stats": stats}
+        for k in ("last", "last5", "season", "ladder", "sd", "games"):
+            if r.get(k) is not None:
+                d[k] = r[k]
+        out.append(d)
     return out
 
 

@@ -1,4 +1,4 @@
-"""NBA-Spielerwetten (Punkte, Rebounds, Assists, Dreier, P+R+A) wie bei Buchmachern.
+"""NBA-Spielerwetten auf Punkte wie bei Buchmachern, mit Punkte-Leiter (mindestens N Punkte) pro Spieler.
 
 Daten: ESPN-Kader und Spiellogs (kostenlos, ohne Key). Modell: gewichteter Schnitt der letzten
 Spiele (neuere zählen mehr) und eine Negativ-Binomial-Verteilung mit der beobachteten Streuung.
@@ -22,8 +22,8 @@ log = logging.getLogger(__name__)
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 ESPN_ATH = "https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes"
-STATS = {"pts": "Punkte", "reb": "Rebounds", "ast": "Assists", "fg3": "Dreier", "pra": "Pkt+Reb+Ast"}
-PM_TYPES = {"points": "pts", "rebounds": "reb", "assists": "ast", "threes": "fg3"}
+STATS = {"pts": "Punkte"}  # Rebounds, Assists usw. bringen bei deutschen Anbietern wenig – nur Punkte
+PM_TYPES = {"points": "pts"}
 MIN_GAMES = 5
 MIN_MINUTES = 15.0
 LOG_CACHE_HOURS = 12
@@ -47,20 +47,37 @@ def init() -> None:
 # ---------------------------------------------------------------- Verteilung
 
 
-def nb_over(mean: float, var: float, line: float) -> float:
-    """P(X > line) für eine Negativ-Binomial-Verteilung (Poisson, wenn var <= mean)."""
-    k_max = int(math.floor(line))
+def nb_pmf(mean: float, var: float, k: int) -> float:
+    """P(X = k) für eine Negativ-Binomial-Verteilung (Poisson, wenn var <= mean)."""
     if mean <= 0:
-        return 0.0
+        return 1.0 if k == 0 else 0.0
     if var <= mean * 1.02:
-        cdf = sum(math.exp(-mean + k * math.log(mean) - math.lgamma(k + 1)) for k in range(k_max + 1))
-        return max(0.0, min(1.0, 1 - cdf))
+        return math.exp(-mean + k * math.log(mean) - math.lgamma(k + 1))
     r = mean * mean / (var - mean)
     p = r / (r + mean)
-    cdf = 0.0
-    for k in range(k_max + 1):
-        cdf += math.exp(math.lgamma(k + r) - math.lgamma(r) - math.lgamma(k + 1) + r * math.log(p) + k * math.log(1 - p))
+    return math.exp(math.lgamma(k + r) - math.lgamma(r) - math.lgamma(k + 1) + r * math.log(p) + k * math.log(1 - p))
+
+
+def nb_over(mean: float, var: float, line: float) -> float:
+    """P(X > line) für eine Negativ-Binomial-Verteilung (Poisson, wenn var <= mean)."""
+    if mean <= 0:
+        return 0.0
+    cdf = sum(nb_pmf(mean, var, k) for k in range(int(math.floor(line)) + 1))
     return max(0.0, min(1.0, 1 - cdf))
+
+
+def points_ladder(mean: float, var: float, lo: int | None = None, hi: int | None = None) -> dict:
+    """Punkte-Leiter wie bei Buchmachern: für jede Punktzahl N die Chance auf genau N und auf mindestens N."""
+    sd = math.sqrt(var)
+    lo = max(1, int(round(mean - 1.6 * sd))) if lo is None else lo
+    hi = max(lo + 6, int(round(mean + 2.2 * sd))) if hi is None else hi
+    exact = [nb_pmf(mean, var, k) for k in range(hi + 1)]
+    below = sum(exact[:lo])
+    at_least, cum = [], below
+    for k in range(lo, hi + 1):
+        at_least.append(max(0.0, 1 - cum))
+        cum += exact[k]
+    return {"from": lo, "atLeast": [round(x, 4) for x in at_least], "exact": [round(x, 4) for x in exact[lo:hi + 1]]}
 
 
 def avg_line(avg: float) -> float:
@@ -219,8 +236,15 @@ def game_props(team_a: str, team_b: str, pm_props: pd.DataFrame | None = None, i
         if status and status.lower() in ("out", "injured reserve", "suspension"):
             continue
         season = played
+        recent = played.sort_values("date_ts")
         row = {"player": p.name, "team": p.team, "side": "a" if p.team == ta else "b", "pos": p.pos, "status": status,
-               "games": int(len(played)), "min": round(float(played.sort_values("date_ts").tail(10)["min"].mean()), 1), "lines": []}
+               "games": int(len(played)), "min": round(float(recent.tail(10)["min"].mean()), 1), "lines": [],
+               "last": [int(x) for x in recent.tail(10)["pts"]],
+               "last5": round(float(recent.tail(5)["pts"].mean()), 1), "season": round(float(played["pts"].mean()), 1)}
+        m_pts, v_pts, _ = player_dist(lg, "pts")
+        if not math.isnan(m_pts):
+            row["ladder"] = points_ladder(m_pts, v_pts)
+            row["sd"] = round(math.sqrt(v_pts), 1)
         for stat, label in STATS.items():
             mean, var, n = player_dist(lg, stat)
             if math.isnan(mean):

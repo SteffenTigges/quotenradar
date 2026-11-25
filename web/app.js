@@ -13,6 +13,7 @@
   var NAV = [
     { id: "spiele", label: "Spiele", icon: '<path d="M4 6h16M4 12h16M4 18h10"/>' },
     { id: "value", label: "Value", icon: '<path d="M4 17l5-5 4 4 7-8"/><path d="M15 8h5v5"/>' },
+    { id: "spieler", label: "Spieler", icon: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>' },
     { id: "grosswetten", label: "Großwetten", icon: '<circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5c0-1.4 1.1-2 2.5-2s2.5.6 2.5 2-1.1 1.8-2.5 2-2.5.7-2.5 2 1.1 2 2.5 2 2.5-.6 2.5-2"/>' },
     { id: "wetten", label: "Meine Wetten", icon: '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 9h6M9 13h6M9 17h3"/>' },
     { id: "info", label: "Info", icon: '<circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/>' }
@@ -312,22 +313,15 @@
         '<p class="foot-note">Quelle: Darts Orakel.' + (g.darts.format ? " Gespielt wird " + esc(g.darts.format) + "." : "") + "</p>";
     }
 
-    // Spielerwetten
-    if (g.props && g.props.length) {
-      var cols = [["pts", "Punkte"], ["reb", "Rebounds"], ["ast", "Assists"]];
-      var propRow = function (p) {
-        var by = {}; p.stats.forEach(function (s) { by[s.stat] = s; });
-        return "<tr><td>" + esc(p.player) + '<div class="muted small">' + esc(p.team) + (p.status ? ", " + esc(p.status) : "") + "</div></td>" +
-          cols.map(function (c) {
-            var s = by[c[0]];
-            return s ? '<td><span class="prop-line">über ' + nf1.format(s.line) + '</span><span class="prop-p">' + pct(s.p_over) + '</span><span class="prop-q">' + fair(s.p_over) + "</span></td>" : '<td class="na">–</td>';
-          }).join("") + "</tr>";
+    // Spieler: nur Punkte, jede Zeile führt zur Punkte-Leiter
+    var pl = allPlayers().filter(function (y) { return y.g.id === g.id; });
+    if (pl.length) {
+      var sideRows = function (side, name) {
+        var r = pl.filter(function (y) { return y.p.side === side; }).sort(function (a, b) { return b.pts.exp - a.pts.exp; });
+        return r.length ? '<h3 class="team-head">' + esc(name) + '</h3><div class="list">' + r.map(function (y) { return playerRow(y, false); }).join("") + "</div>" : "";
       };
-      var head = "<thead><tr><th>Spieler</th>" + cols.map(function (c) { return "<th>" + c[1] + "</th>"; }).join("") + "</tr></thead>";
-      var top = g.props.slice(0, 6), rest = g.props.slice(6);
-      h += '<h2 class="section">Spielerwetten</h2><div class="panel table-wrap"><table class="props">' + head + "<tbody>" + top.map(propRow).join("") + "</tbody></table></div>";
-      if (rest.length) h += '<details class="more"><summary>' + rest.length + " weitere Spieler</summary>" + '<div class="panel table-wrap"><table class="props">' + head + "<tbody>" + rest.map(propRow).join("") + "</tbody></table></div></details>";
-      h += '<p class="foot-note">Linie ist der Saisonschnitt mit „,5“, darunter die Chance auf „über“ und die faire Quote.</p>';
+      h += '<h2 class="section">Spieler und Punkte</h2><p class="prose small">Tipp auf einen Spieler für die Chance auf 20, 25, 30 oder mehr Punkte.</p>' +
+        sideRows("a", g.a) + sideRows("b", g.b);
     }
 
     // Großwetten auf dieses Spiel
@@ -343,6 +337,97 @@
             return '<div class="pick"><span class="lbl">' + esc(x.label) + '</span><span class="num"><span class="p">' + pct(x.p) + '</span><span class="q">' + odds(x.odds) + "</span></span></div>";
           }).join("") + "</div></details>";
       }).join("") + "</div>";
+    }
+    $("#view").innerHTML = h;
+    window.scrollTo(0, 0);
+  }
+
+  // ---------------------------------------------------------------- Spieler (NBA-Punkte)
+  function allPlayers() {
+    var out = [];
+    D.games.forEach(function (g) {
+      (g.props || []).forEach(function (p, i) {
+        var pts = (p.stats || []).filter(function (s) { return s.stat === "pts"; })[0];
+        if (!pts) return;
+        out.push({ g: g, p: p, i: i, pts: pts, opp: p.side === "a" ? g.b : g.a, form: p.last5 != null && p.season != null ? p.last5 - p.season : 0 });
+      });
+    });
+    return out;
+  }
+  function playerHref(x) { return "#/spieler/" + encodeURIComponent(x.g.id) + "/" + x.i; }
+  function formTag(x) {
+    if (x.form >= 3) return '<span class="tag-hot">+' + nf1.format(x.form) + " in Form</span>";
+    if (x.form <= -3) return '<span class="tag-cold">−' + nf1.format(-x.form) + " schwach</span>";
+    return "";
+  }
+  function playerRow(x, showGame) {
+    var st = x.p.status ? '<span class="tag-warn">' + esc(x.p.status) + "</span>" : "";
+    return '<a class="prow" href="' + playerHref(x) + '">' +
+      '<div class="pr-name"><b>' + esc(x.p.player) + "</b><span>" + (showGame ? esc(x.p.team.split(" ").pop()) + " gegen " + esc(x.opp) + ", " + esc(dayLabel(x.g.start)) + " " + time(x.g.start) : esc(x.p.team)) + "</span>" +
+      (st || formTag(x) ? '<div class="pr-tags">' + st + formTag(x) + "</div>" : "") + "</div>" +
+      '<div class="pr-num"><span>Saison</span><b>' + nf1.format(x.p.season) + "</b></div>" +
+      '<div class="pr-num"><span>Letzte 5</span><b>' + nf1.format(x.p.last5) + "</b></div>" +
+      '<div class="pr-num strong"><span>Erwartet</span><b>' + nf1.format(x.pts.exp) + "</b></div>" + CHEV + "</a>";
+  }
+
+  function viewPlayers() {
+    var list = allPlayers();
+    var h = '<h1>Spieler</h1><p class="lead">NBA-Spieler der nächsten Spiele. Tipp auf einen Spieler, um zu sehen, mit welcher Wahrscheinlichkeit er wie viele Punkte macht.</p>';
+    if (!list.length) {
+      $("#view").innerHTML = h + '<div class="empty"><p>Gerade stehen keine NBA-Spiele mit Spielerdaten an.</p></div>'; return;
+    }
+    var hot = list.filter(function (x) { return x.p.season >= 10 && x.form > 0; }).sort(function (a, b) { return b.form - a.form; }).slice(0, 10);
+    var top = list.slice().sort(function (a, b) { return b.pts.exp - a.pts.exp; }).slice(0, 15);
+    h += '<input class="search wide" id="pq" type="search" placeholder="Spieler suchen" aria-label="Spieler suchen">' +
+      '<div id="presults"></div>' +
+      '<h2 class="section">Heißeste Spieler</h2><p class="prose small">Die größten Steigerungen: Punkte der letzten 5 Spiele gegenüber dem Saisonschnitt.</p><div class="list">' + hot.map(function (x) { return playerRow(x, true); }).join("") + "</div>" +
+      '<h2 class="section">Meiste Punkte erwartet</h2><div class="list">' + top.map(function (x) { return playerRow(x, true); }).join("") + "</div>";
+    $("#view").innerHTML = h;
+    var inp = $("#pq");
+    inp.addEventListener("input", function () {
+      var q = inp.value.trim().toLowerCase();
+      var hits = q.length < 2 ? [] : list.filter(function (x) { return x.p.player.toLowerCase().indexOf(q) >= 0; }).slice(0, 12);
+      $("#presults").innerHTML = q.length < 2 ? "" : hits.length ? '<div class="list" style="margin-top:12px">' + hits.map(function (x) { return playerRow(x, true); }).join("") + "</div>" : '<p class="muted" style="margin:14px 2px">Kein Spieler gefunden.</p>';
+    });
+  }
+
+  function viewPlayer(gid, idx) {
+    var x = allPlayers().filter(function (y) { return y.g.id === gid && y.i === idx; })[0];
+    if (!x) { $("#view").innerHTML = '<a class="back" href="#/spieler">' + BACK + 'Alle Spieler</a><div class="empty"><p>Dieser Spieler ist nicht mehr in der Liste. Das Spiel hat vermutlich schon begonnen.</p></div>'; return; }
+    var p = x.p, g = x.g, L = p.ladder;
+    var h = '<a class="back" href="#/spiel/' + encodeURIComponent(g.id) + '">' + BACK + esc(g.a) + " – " + esc(g.b) + "</a>" +
+      '<section class="hero player-hero"><div class="meta"><span>' + esc(p.team) + "</span><span>gegen " + esc(x.opp) + ", " + esc(longDate(g.start)) + "</span></div>" +
+      '<div class="ph-name">' + esc(p.player) + "</div>" +
+      '<div class="ph-row"><div class="ph-big"><b>' + nf1.format(x.pts.exp) + "</b><span>Punkte erwartet</span></div>" +
+      '<div class="ph-facts"><div><span>Saison</span><b>' + nf1.format(p.season) + '</b></div><div><span>Letzte 5</span><b>' + nf1.format(p.last5) + "</b></div>" +
+      "<div><span>Schwankung</span><b>±" + nf1.format(p.sd || 0) + "</b></div><div><span>Minuten</span><b>" + nf0.format(p.min) + "</b></div></div></div>" +
+      (p.status ? '<p class="verdict">Status: <strong>' + esc(p.status) + "</strong>. Falls er ausfällt, gilt nichts davon.</p>" : "") + "</section>";
+
+    // Letzte 10 Spiele
+    if (p.last && p.last.length) {
+      var mx = Math.max.apply(null, p.last.concat([p.season || 0])) || 1;
+      h += '<h2 class="section">Letzte ' + p.last.length + " Spiele</h2>" +
+        '<div class="panel bars-panel"><div class="bars" role="img" aria-label="Punkte der letzten Spiele, ältestes links">' +
+        '<i class="avg-line" style="bottom:' + Math.round(p.season / mx * 120) + 'px"><span>Ø ' + nf1.format(p.season) + "</span></i>" +
+        p.last.map(function (v, k) {
+          var cls = v >= p.season ? "up" : "down";
+          return '<div class="bar ' + cls + (k >= p.last.length - 5 ? " recent" : "") + '"><b>' + v + '</b><i style="height:' + Math.max(3, Math.round(v / mx * 120)) + 'px"></i></div>';
+        }).join("") + '</div><div class="bars-foot"><span>älter</span><span>letzte 5 hervorgehoben</span><span>neuestes</span></div></div>';
+    }
+
+    // Punkte-Leiter
+    if (L) {
+      var rows = L.atLeast.map(function (pa, k) { return { n: L.from + k, at: pa, ex: L.exact[k] }; });
+      var main = rows.reduce(function (m, r) { return Math.abs(r.at - 0.5) < Math.abs(m.at - 0.5) ? r : m; }, rows[0]);
+      h += '<h2 class="section">Wie viele Punkte?</h2>' +
+        '<p class="prose small">„Mindestens 32“ entspricht bei den Anbietern „über 31,5“. Die faire Quote ist der Wert, ab dem sich die Wette laut Modell lohnt. Dunkel markiert: die Linie nahe 50 %, wie sie Anbieter meist anbieten.</p>' +
+        '<div class="panel ladder"><div class="lrow lhead"><span>Punkte</span><span>Chance</span><span class="lq">Faire Quote</span><span class="lx">Genau so viele</span></div>' +
+        rows.filter(function (r) { return r.at <= 0.97 && r.at >= 0.03; }).map(function (r) {
+          return '<div class="lrow' + (r === main ? " main" : "") + '"><span class="ln">mind. <b>' + r.n + "</b></span>" +
+            '<span class="lp"><i style="width:' + (r.at * 100) + '%"></i><b>' + pct(r.at) + "</b></span>" +
+            '<span class="lq">' + fair(r.at) + '</span><span class="lx">' + pct(r.ex, true) + "</span></div>";
+        }).join("") + "</div>" +
+        '<p class="foot-note">Berechnet aus den letzten 20 Spielen (neuere zählen mehr) mit der echten Schwankung des Spielers. Gegner, Verletzungen von Mitspielern und Pausen-Abende sind nicht eingerechnet.</p>';
     }
     $("#view").innerHTML = h;
     window.scrollTo(0, 0);
@@ -490,12 +575,14 @@
     $(".nav-bottom").innerHTML = nav;
     $(".nav-top").innerHTML = NAV.map(function (n) { return '<a href="#/' + n.id + '"' + (n.id === active ? ' aria-current="page"' : "") + ">" + n.label + "</a>"; }).join("");
     if (page === "spiel") viewGame(decodeURIComponent(parts.slice(1).join("/")));
+    else if (page === "spieler" && parts.length >= 3) viewPlayer(decodeURIComponent(parts[1]), +parts[2]);
+    else if (page === "spieler") viewPlayers();
     else if (page === "value") viewValue();
     else if (page === "grosswetten") viewWhales();
     else if (page === "wetten") viewBets();
     else if (page === "info") viewInfo();
     else viewGames();
-    if (page !== "spiel") window.scrollTo(0, 0);
+    if (page !== "spiel" && !(page === "spieler" && parts.length >= 3)) window.scrollTo(0, 0);
   }
 
   function stamp() {
