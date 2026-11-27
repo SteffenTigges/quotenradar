@@ -78,8 +78,10 @@ def export_games(hours: int = 48) -> list[dict]:
         d["tier"], d["rank"] = league_tier(g["family"], g["league"])
         if g.get("darts"):
             keep = ("avg", "first9", "s180", "checkout", "legs_won", "high_co")
-            d["darts"] = {"a": {k: g["darts"]["a"].get(k) for k in keep}, "b": {k: g["darts"]["b"].get(k) for k in keep},
-                          "format": g["darts"].get("format")}
+            d["darts"] = {"format": g["darts"].get("format")}
+            if g["darts"].get("a") and g["darts"].get("b"):  # Spielerstatistik nur, wenn Darts Orakel erreichbar war
+                d["darts"]["a"] = {k: g["darts"]["a"].get(k) for k in keep}
+                d["darts"]["b"] = {k: g["darts"]["b"].get(k) for k in keep}
         out.append(_clean(d))
     rank = {s: i for i, s in enumerate(SPORT_ORDER)}
     # Wichtigste zuerst behalten: wichtige Ligen, mit Buchmacherquoten, große Sportarten, hohe Aufmerksamkeit
