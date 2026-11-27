@@ -261,7 +261,8 @@
     if (!g) { $("#view").innerHTML = '<a class="back" href="#/spiele">' + BACK + 'Alle Spiele</a><div class="empty"><p>Dieses Spiel ist nicht mehr in der Liste. Es hat vermutlich schon begonnen.</p></div>'; return; }
     var pr = probs(g) || {}, bk = g.books;
     var favA = (pr.a || 0) >= (pr.b || 0), fav = favA ? g.a : g.b, fp = favA ? pr.a : pr.b;
-    var verdict = '<p class="verdict">' + (g.model ? "Laut Modell" : "Laut Buchmachern") + " gewinnt <strong>" + esc(fav) + "</strong> mit " + pct(fp) + ".";
+    var src = g.method === "Marktpreis" ? "Laut Wettmarkt" : g.model ? "Laut Modell" : "Laut Buchmachern";
+    var verdict = '<p class="verdict">' + src + " gewinnt <strong>" + esc(fav) + "</strong> mit " + pct(fp) + ".";
     if (g.model && bk) { var bf = favA ? bk.a : bk.b; verdict += " Die Buchmacher sehen " + pct(bf) + (Math.abs(bf - fp) < 0.03 ? ", also fast dasselbe." : "."); }
     if (g.expected) verdict += " Erwartet: " + esc(g.expected) + ".";
     verdict += "</p>";
@@ -280,7 +281,9 @@
     var km = keyMarkets(g);
     if (km.length) {
       h += '<h2 class="section">Die wichtigsten Wetten</h2><div class="mgrid">' + km.map(function (m) { return marketCard(g, m); }).join("") + "</div>" +
-        '<p class="foot-note">Die große Zahl ist die Chance laut Modell, darunter die faire Quote' + (g.odds && g.odds.length ? " und die beste Quote der Anbieter. Gelb markiert: Der Anbieter zahlt mehr als fair." : ".") + "</p>";
+        '<p class="foot-note">Die große Zahl ist die Chance laut ' + (g.method === "Marktpreis" ? "Wettmarkt" : "Modell") + ', darunter die faire Quote' + (g.odds && g.odds.length ? " und die beste Quote der Anbieter. Gelb markiert: Der Anbieter zahlt mehr als fair." : ".") +
+        (g.darts && g.darts.format ? " Gespielt wird " + esc(g.darts.format) + "." : "") +
+        (g.method === "Marktpreis" ? " Die Siegchance stammt aus dem Wettmarkt, die übrigen Wetten sind daraus über das Legs-Modell abgeleitet." : "") + "</p>";
     }
 
     // Quotenvergleich
@@ -301,7 +304,7 @@
     }
 
     // Darts-Statistik
-    if (g.darts) {
+    if (g.darts && g.darts.a && g.darts.b) {
       var da = g.darts.a, db = g.darts.b;
       var rows = [["3-Dart-Average", da.avg, db.avg, nf2], ["First 9 Average", da.first9, db.first9, nf2], ["180er", da.s180, db.s180, nf0],
         ["Checkout-Quote", da.checkout, db.checkout, "pct"], ["Gewonnene Legs", da.legs_won, db.legs_won, "pct"], ["Höchstes Finish", da.high_co, db.high_co, nf0]];

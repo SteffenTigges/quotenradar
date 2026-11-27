@@ -251,6 +251,16 @@ def build(hours: int = 48, with_props: bool = True, progress=lambda s: None) -> 
                     fmt = f"Best of {2 * k - 1} Legs" if k else None
                 g["model"], g["method"] = {"a": p, "b": 1 - p}, "Average-Modell"
                 g["darts"] = {"a": sa, "b": sb, "format": fmt}
+            elif fam == "darts" and g["market"].get("a") and g["market"].get("b"):
+                # Ohne Spielerstatistik: Siegchance laut Markt (bei Darts im Backtest deutlich genauer als Elo),
+                # daraus über das Legs-/Satzmodell alle typischen Wetten
+                pa = g["market"]["a"] / (g["market"]["a"] + g["market"]["b"])
+                sets = darts.sets_to(g.get("title") or g["league"], g.get("start"))
+                k = None if sets else (darts.first_to(g.get("title") or g["league"]) or 6)
+                diff = darts.implied_diff(pa, k=k, sets=sets)
+                g["groups"] = darts.markets_sets(a, b, diff, 0.0, sets) if sets else darts.markets(a, b, diff, 0.0, k)
+                g["model"], g["method"] = {"a": pa, "b": 1 - pa}, "Marktpreis"
+                g["darts"] = {"format": f"Best of {2 * sets - 1} Sätze" if sets else f"Best of {2 * k - 1} Legs"}
             else:
                 p2, method = pm_.win_prob(a, b, home, g["code"], adj)
                 if p2 is not None:

@@ -37,3 +37,10 @@ def test_darts_importance():
     assert league_tier("darts", "Players Championship 33")[0] == 3
     assert league_tier("darts", "MODUS Super Series")[0] == 4
     assert league_tier("darts", "World Youth Championship")[0] == 4
+
+
+def test_markets_from_market_price():
+    for k, sets in ((6, None), (None, 3), (10, None)):
+        d = darts.implied_diff(0.65, k=k, sets=sets)
+        groups = darts.markets_sets("A", "B", d, 0.0, sets) if sets else darts.markets("A", "B", d, 0.0, k)
+        assert abs(groups[0]["items"][0]["p"] - 0.65) < 0.002

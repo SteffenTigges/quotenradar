@@ -99,6 +99,9 @@ def fetch(names: list[str], force: bool = False, progress=lambda s: None) -> int
             elif r.status_code != 404:
                 failed += 1
                 log.warning("Darts Orakel %s: HTTP %s", name, r.status_code)
+                if r.status_code == 403 and failed >= 3 and not any(x["found"] for x in rows):
+                    log.warning("Darts Orakel lehnt automatische Abrufe ab – für heute keine weiteren Versuche")
+                    break
         except requests.RequestException as e:
             failed += 1
             log.warning("Darts Orakel %s: %s", name, e)
@@ -227,3 +230,18 @@ def markets_sets(a: str, b: str, avg_a: float, avg_b: float, s: int) -> list[dic
     groups.append({"group": f"Gesamtzahl Sätze (erwartet {_fl(round(exp_total, 1))})",
                    "items": [item(f"Über {_fl(line)} Sätze", po), item(f"Unter {_fl(line)} Sätze", 1 - po)]})
     return groups
+
+
+def implied_diff(p_match: float, k: int | None = None, sets: int | None = None) -> float:
+    """Average-Unterschied, der zu einer gegebenen Siegchance passt (Umkehrung des Modells).
+    So lassen sich aus der Siegchance laut Markt alle Wetten ableiten (Legs, Handicap, Sätze)."""
+    p_match = min(max(p_match, 0.005), 0.995)
+    f = (lambda d: match_prob_sets(d, 0.0, sets)) if sets else (lambda d: match_prob(d, 0.0, k))
+    lo, hi = -80.0, 80.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if f(mid) < p_match:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
